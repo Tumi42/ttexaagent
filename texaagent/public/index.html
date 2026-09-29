@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Texaagent — chatbot + outreach for your business</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{font-family:'Inter',system-ui,sans-serif;background:#0f1115;color:#eef0f3}
+  .card{background:#171a21;border:1px solid #2a2e38;border-radius:14px}
+  input,textarea{background:#0d0f13;border:1px solid #2a2e38;border-radius:8px;color:#eef0f3;padding:10px 12px;font-size:14px;width:100%}
+  ::placeholder{color:#6b7280}
+  .tab{cursor:pointer;padding:10px 18px;border-radius:9px;font-weight:600;font-size:14px;color:#9aa2b1}
+  .tab.active{background:#10b981;color:#06251b}
+  .btn{background:#10b981;color:#06251b;border:none;border-radius:9px;padding:11px 20px;font-weight:600;cursor:pointer;font-size:14px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn-ghost{background:transparent;border:1px solid #2a2e38;color:#eef0f3;font-weight:500}
+  .pill{background:#0d0f13;border:1px solid #2a2e38;border-radius:999px;padding:4px 12px;font-size:12px;color:#9aa2b1}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-4xl mx-auto px-4 py-10">
+  <header class="text-center mb-8">
+    <h1 class="text-3xl font-bold">Texaagent</h1>
+    <p class="text-gray-400 mt-1">One AI that answers your customers and finds you new ones.</p>
+  </header>
+
+  <!-- SETUP -->
+  <div id="setupCard" class="card p-6 mb-6">
+    <h2 class="text-sm uppercase tracking-wide text-gray-400 mb-4">Step 1 — tell us about the business</h2>
+    <label class="text-xs text-gray-400 block mb-1">Business name</label>
+    <input id="name" placeholder="e.g. Thandi's Hair Studio" maxlength="100" class="mb-3">
+    <label class="text-xs text-gray-400 block mb-1">Website URL (optional)</label>
+    <input id="url" placeholder="https://yourbusiness.co.za" class="mb-3">
+    <label class="text-xs text-gray-400 block mb-1">Or paste business info (prices, hours, FAQs)</label>
+    <textarea id="content" rows="4" placeholder="Opening hours, services, prices, contact details..." class="mb-3"></textarea>
+    <label class="text-xs text-gray-400 block mb-1">Plan</label>
+    <div class="grid grid-cols-3 gap-2 mb-4" id="planPicker"></div>
+    <button id="createBtn" class="btn w-full">Create my agent</button>
+    <p id="setupStatus" class="text-sm text-red-400 mt-2 min-h-[18px]"></p>
+  </div>
+
+  <!-- APP (hidden until a bot exists) -->
+  <div id="app" class="hidden">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div class="flex gap-2">
+        <button class="tab active" data-tab="chat">Chatbot</button>
+        <button class="tab" data-tab="outreach">Outreach</button>
+      </div>
+      <div class="flex gap-2">
+        <span class="pill" id="chatCreditsPill">— chat credits</span>
+        <span class="pill" id="emailCreditsPill">— email credits</span>
+      </div>
+    </div>
+
+    <!-- CHATBOT TAB -->
+    <div id="tab-chat" class="card p-6">
+      <h2 class="text-sm uppercase tracking-wide text-gray-400 mb-3">Embed this on your site</h2>
+      <p class="text-sm text-gray-400 mb-2">Paste before the closing <code>&lt;/body&gt;</code> tag:</p>
+      <pre id="snippet" class="bg-black/40 border border-gray-800 rounded-lg p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all"></pre>
+      <button id="copySnippet" class="btn-ghost mt-2 px-4 py-2 rounded-lg text-sm">Copy embed code</button>
+      <p class="text-sm text-gray-400 mt-4">The chat bubble is live on this page too — try it bottom-right.</p>
+    </div>
+
+    <!-- OUTREACH TAB -->
+    <div id="tab-outreach" class="card p-6 hidden">
+      <h2 class="text-sm uppercase tracking-wide text-gray-400 mb-3">Step 2 — upload leads, get drafts, approve, send</h2>
+      <p class="text-xs text-gray-400 mb-3">CSV columns: name,email,company,notes (header row required). We can't discover new leads for you yet — bring a list from Apollo/Hunter's free tier or your own contacts.</p>
+      <input type="file" id="csvFile" accept=".csv" class="mb-3">
+      <button id="draftBtn" class="btn">Generate drafts</button>
+      <p id="outreachStatus" class="text-sm text-red-400 mt-2 min-h-[18px]"></p>
+
+      <div id="drafts" class="mt-5 space-y-3"></div>
+      <button id="sendBtn" class="btn mt-4 hidden">Send approved emails</button>
+    </div>
+  </div>
+
+  <!-- PRICING -->
+  <div class="mt-10">
+    <h2 class="text-center text-xl font-semibold mb-4">Pricing</h2>
+    <div class="grid md:grid-cols-3 gap-4" id="pricingGrid"></div>
+    <p class="text-center text-xs text-gray-500 mt-4">Chatbot billed monthly by plan. Outreach billed pay-as-you-go: R7 per email sent, on top of any plan.</p>
+  </div>
+</div>
+
+<script>
+const PLANS = {
+  starter:  { label: "Starter",  price: "R299/mo", chat: 500,   email: 20,  features: ["1 chatbot","500 chats/mo","20 outreach emails/mo included"] },
+  pro:      { label: "Pro",      price: "R599/mo", chat: 2000,  email: 100, features: ["3 chatbots","2,000 chats/mo","100 outreach emails/mo included","Lead capture"] },
+  business: { label: "Business", price: "R1,499/mo", chat: 10000, email: 400, features: ["10 chatbots","10,000 chats/mo","400 outreach emails/mo included","Priority support"] }
+};
+
+// Render plan picker
+const planPicker = document.getElementById("planPicker");
+let selectedPlan = "starter";
+Object.entries(PLANS).forEach(([key, p]) => {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "border rounded-lg p-2 text-xs text-left " + (key === "starter" ? "border-emerald-500" : "border-gray-700");
+  btn.innerHTML = `<div class="font-semibold">${p.label}</div><div class="text-gray-400">${p.price}</div>`;
+  btn.onclick = () => {
+    selectedPlan = key;
+    [...planPicker.children].forEach(c => c.className = c.className.replace("border-emerald-500", "border-gray-700"));
+    btn.className = btn.className.replace("border-gray-700", "border-emerald-500");
+  };
+  planPicker.appendChild(btn);
+});
+
+// Render pricing grid
+const pricingGrid = document.getElementById("pricingGrid");
+Object.values(PLANS).forEach(p => {
+  const div = document.createElement("div");
+  div.className = "card p-5";
+  div.innerHTML = `<div class="font-semibold text-lg">${p.label}</div><div class="text-2xl font-bold my-2">${p.price}</div>
+    <ul class="text-sm text-gray-400 space-y-1">${p.features.map(f => `<li>• ${f}</li>`).join("")}</ul>`;
+  pricingGrid.appendChild(div);
+});
+
+let botId = null, chatCredits = 0, emailCredits = 0;
+
+const createBtn = document.getElementById("createBtn");
+const setupStatus = document.getElementById("setupStatus");
+
+createBtn.onclick = async () => {
+  const name = document.getElementById("name").value.trim();
+  const url = document.getElementById("url").value.trim();
+  const content = document.getElementById("content").value.trim();
+  setupStatus.textContent = "";
+  if (!name) { setupStatus.textContent = "Enter your business name."; return; }
+  if (!url && !content) { setupStatus.textContent = "Add a website URL or paste some business info."; return; }
+
+  createBtn.disabled = true; createBtn.textContent = "Setting up...";
+  try {
+    const res = await fetch("/api/create-bot", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, content, plan: selectedPlan }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Something went wrong");
+    botId = data.id; chatCredits = data.chat_credits; emailCredits = data.email_credits;
+
+    document.getElementById("setupCard").classList.add("hidden");
+    document.getElementById("app").classList.remove("hidden");
+    updateCreditPills();
+
+    const snippet = `<script src="${location.origin}/widget.js" data-bot="${botId}" defer><\/script>`;
+    document.getElementById("snippet").textContent = snippet;
+
+    const s = document.createElement("script");
+    s.src = "/widget.js"; s.setAttribute("data-bot", botId);
+    document.body.appendChild(s);
+  } catch (e) { setupStatus.textContent = e.message; }
+  createBtn.disabled = false; createBtn.textContent = "Create my agent";
+};
+
+function updateCreditPills() {
+  document.getElementById("chatCreditsPill").textContent = chatCredits + " chat credits";
+  document.getElementById("emailCreditsPill").textContent = emailCredits + " email credits";
+}
+
+document.getElementById("copySnippet").onclick = function () {
+  navigator.clipboard.writeText(document.getElementById("snippet").textContent).then(() => {
+    this.textContent = "Copied!"; setTimeout(() => this.textContent = "Copy embed code", 1500);
+  });
+};
+
+// Tabs
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById("tab-chat").classList.toggle("hidden", tab.dataset.tab !== "chat");
+    document.getElementById("tab-outreach").classList.toggle("hidden", tab.dataset.tab !== "outreach");
+  };
+});
+
+// Outreach
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+  return lines.slice(1).map(line => {
+    const cells = line.split(",").map(c => c.trim());
+    const row = {}; headers.forEach((h, i) => row[h] = cells[i] || "");
+    return row;
+  });
+}
+
+const outreachStatus = document.getElementById("outreachStatus");
+const draftsEl = document.getElementById("drafts");
+const sendBtn = document.getElementById("sendBtn");
+let currentDrafts = [];
+
+document.getElementById("draftBtn").onclick = async () => {
+  outreachStatus.textContent = ""; draftsEl.innerHTML = ""; sendBtn.classList.add("hidden");
+  const file = document.getElementById("csvFile").files[0];
+  if (!file) { outreachStatus.textContent = "Choose a CSV file first."; return; }
+  const text = await file.text();
+  const leads = parseCsv(text).filter(l => l.email);
+  if (leads.length === 0) { outreachStatus.textContent = "No valid rows with an email column found."; return; }
+  if (leads.length > emailCredits) { outreachStatus.textContent = `Only ${emailCredits} email credits left — trim your list or upgrade.`; return; }
+
+  outreachStatus.textContent = "Drafting personalized emails...";
+  try {
+    const res = await fetch("/api/draft-outreach", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ botId, leads }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to draft");
+    currentDrafts = data.drafts;
+    outreachStatus.textContent = "";
+    renderDrafts();
+    sendBtn.classList.remove("hidden");
+  } catch (e) { outreachStatus.textContent = e.message; }
+};
+
+function renderDrafts() {
+  draftsEl.innerHTML = "";
+  currentDrafts.forEach(d => {
+    const div = document.createElement("div");
+    div.className = "border border-gray-700 rounded-lg p-3";
+    div.innerHTML = `<label class="flex items-start gap-2 text-sm">
+      <input type="checkbox" checked data-id="${d.id}" class="mt-1">
+      <span><strong>${d.name || d.email}</strong> — ${d.company || "unknown company"}<br>
+      <span class="text-gray-400 whitespace-pre-wrap">${d.draft}</span></span>
+    </label>`;
+    draftsEl.appendChild(div);
+  });
+}
+
+sendBtn.onclick = async () => {
+  const checked = [...draftsEl.querySelectorAll("input[type=checkbox]:checked")].map(c => c.dataset.id);
+  if (checked.length === 0) { outreachStatus.textContent = "Nothing approved to send."; return; }
+  sendBtn.disabled = true; sendBtn.textContent = "Sending...";
+  try {
+    const res = await fetch("/api/send-approved", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ botId, leadIds: checked }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to send");
+    emailCredits = data.email_credits; updateCreditPills();
+    outreachStatus.textContent = `Sent ${data.sent}, failed ${data.failed}.`;
+    outreachStatus.className = "text-sm text-emerald-400 mt-2";
+    draftsEl.innerHTML = ""; sendBtn.classList.add("hidden"); currentDrafts = [];
+  } catch (e) { outreachStatus.textContent = e.message; outreachStatus.className = "text-sm text-red-400 mt-2"; }
+  sendBtn.disabled = false; sendBtn.textContent = "Send approved emails";
+};
+</script>
+</body>
+</html>
